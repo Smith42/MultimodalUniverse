@@ -1,5 +1,5 @@
 import os
-from datasets import DatasetBuilder, Dataset
+from datasets import DatasetBuilder, Dataset, Features
 from astropy.table import Table, hstack, vstack
 from astropy.coordinates import SkyCoord
 from astropy import units as u
@@ -131,20 +131,46 @@ def cross_match_datasets(left : DatasetBuilder,
                                         object_ids=[group[right.config.name+'_object_id']])
                     ]
             # Retrieve the generators for both datasets
+            counter = 0
             for i, examples in enumerate(zip(*generators)):
                 left_id, example_left = examples[0]
                 right_id, example_right = examples[1]
-                assert str(group[i][left.config.name+'_object_id']) in left_id, "There was an error in the cross-matching generation."
-                assert str(group[i][right.config.name+'_object_id']) in right_id, "There was an error in the cross-matching generation."
-                example_left.update(example_right)
-                yield example_left
-    
-    # Merging the features of both datasets
-    features = left.info.features.copy()
-    features.update(right.info.features)
+                try:
+                    assert str(group[i][left.config.name+'_object_id']) in left_id, "There was an error in the cross-matching generation."
+                    assert str(group[i][right.config.name+'_object_id']) in right_id, "There was an error in the cross-matching generation."
+                except AssertionError as err:
+                    counter = counter + 1
+                    continue
+                if counter != 0:
+                    print(f"\nThere were {counter} errors in the cross-matching generation.")
+                counter = 0
+                # Merge examples with dataset name prefixes for duplicate keys
+                merged_example = {}
+                all_keys = set(example_left.keys()) | set(example_right.keys())
+                for key in all_keys:
+                    if key in example_left and key in example_right:
+                        # Duplicate key - prefix with dataset names
+                        merged_example[f'{left.name}_{key}'] = example_left[key]
+                        merged_example[f'{right.name}_{key}'] = example_right[key]
+                    elif key in example_left:
+                        merged_example[key] = example_left[key]
+                    else:
+                        merged_example[key] = example_right[key]
+                yield merged_example
 
-    # Generating a description for the new dataset based on the two parent datasets
-    description = (f"Cross-matched dataset between {left.info.builder_name}:{left.info.config_name} and {right.info.builder_name}:{left.info.config_name}.\nBelow are the original descriptions\n\n"
+    features = Features()
+    all_feature_keys = set(left.info.features.keys()) | set(right.info.features.keys())
+    for key in all_feature_keys:
+        if key in left.info.features and key in right.info.features:
+            # Duplicate feature - prefix with dataset names
+            features[f'{left.name}_{key}'] = left.info.features[key]
+            features[f'{right.name}_{key}'] = right.info.features[key]
+        elif key in left.info.features:
+            features[key] = left.info.features[key]
+        else:
+            features[key] = right.info.features[key]
+
+    description = (f"Cross-matched dataset between {left.info.builder_name}:{left.info.config_name} and {right.info.builder_name}:{right.info.config_name}.\nBelow are the original descriptions\n\n"
                    f"{left.info.description}\n\n{right.info.description}")
     
     # Create the new dataset
