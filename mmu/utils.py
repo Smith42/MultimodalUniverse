@@ -11,6 +11,19 @@ import h5py
 import pandas as pd
 from astropy import units
 
+def safe_for_pool(exceptions=(Exception,), default=None, print_errors=True):
+    def decorator(func):
+        def safe_wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except exceptions as err:
+                if print_errors:
+                    print(f"Error processing {args[0] if args else 'input'}: {err}")
+                return default
+        return safe_wrapper
+    return decorator
+
+@safe_for_pool(exceptions=(OSError,))
 def _file_to_catalog(filename: str, keys: List[str]):
     with h5py.File(filename, 'r') as data:
         if 'object_id' in keys:
@@ -47,9 +60,12 @@ def get_catalog(dset: DatasetBuilder,
     if num_proc > 1:
         with Pool(num_proc) as pool:
             catalogs = pool.map(partial(_file_to_catalog, keys=keys), dset.config.data_files[split])
+            catalogs = [c for c in catalogs if c is not None]
     else:
         for filename in dset.config.data_files[split]:
-            catalogs.append(_file_to_catalog(filename, keys=keys))
+            catalog = _file_to_catalog(filename, keys=keys)
+            if catalog is not None:
+                catalogs.append(catalog)
     return vstack(catalogs)
 
 def cross_match_datasets(left : DatasetBuilder, 
