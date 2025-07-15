@@ -13,7 +13,15 @@ from astropy import units
 
 def _file_to_catalog(filename: str, keys: List[str]):
     with h5py.File(filename, 'r') as data:
-        return Table({k: data[k] for k in keys})
+        if 'object_id' in keys:
+            if 'object_id' in data:
+                return Table({k: data[k] for k in keys})
+            elif 'source_id' in data:
+                return Table({k: data['source_id'] if k == 'object_id' else data[k] for k in keys})
+            else:
+                raise KeyError("Neither 'object_id' nor 'source_id' found in HDF5 file")
+        else:
+            return Table({k: data[k] for k in keys})
 
 def get_catalog(dset: DatasetBuilder,
                 keys: List[str] = ['object_id', 'ra', 'dec', 'healpix'],
